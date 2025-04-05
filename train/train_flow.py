@@ -4,7 +4,7 @@ import datetime
 import numpy as np
 from data_parser.bpm_parser import BPMDataConfig  
 from data_parser.dcm_config import DCMDatConfig     
-from data_preparation.data_prep import DataPreparation
+from data_preparation.data_scaling import DataPreparation
 from model.anomaly_model import AnomalyModel
 from analysis.evaluation import ModelEvaluator
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
@@ -13,45 +13,70 @@ from data_preparation.data_preprocessor import DataPreprocessor
 def train_workflow(logger):
     logger.info("Starting training workflow...")
 
-    # For example, you can now use BPMDataConfig to load beam parameters:
+    # BPMDataConfig to load beam parameters:
     bpm_config = BPMDataConfig()
-    # Depending on your implementation, you might call:
-    beam_config_df = bpm_config.update_beam_config(
-        # Pass your DataFrame here...
-    )
-    # Similarly, you can instantiate and use DCMDatConfig as needed:
+    bcm_df = pd.read_csv(bpm_config.beam_settings_data_path)
+    bcm_df = bcm_df.drop("Unnamed: 0", axis=1, errors="ignore")
+    bcm_df['timestamps'] = pd.to_datetime(bcm_df['timestamps'])
+    bcm_df = bpm_config.update_beam_config(bcm_df)
+    logger.info("Beam config DataFrame created with shape: %s", bcm_df.shape)
+
+    # DCMDatConfig as parameters:
     dcm_config = DCMDatConfig()
     filtered_normal_files, filtered_anomaly_files = dcm_config.get_sep_filtered_files()
-    
-# Assuming merged_df is your DataFrame to be cleaned
-    preprocessor = DataPreprocessor(merged_df)
+    dcm_normal = DataPreparation.process_files(filtered_normal_files, 'Sep24', 0, data_type=0)
+    dcm_anormal = DataPreparation.process_files(filtered_anomaly_files, 'Sep24', 1, data_type=-1, alarm=48)
+    dcm_df=pd.concat([dcm_normal, dcm_anormal], ignore_index=True)
+
+    merged_df=DataPreparation.merge_data(bcm_df,dcm_df)
+
+    processed_df = merged_df[merged_df.columns[~merged_df.columns.isin(
+    ['timestamps', 'traces'])]]
+    processed_df.head()
+    processed_df['anomoly_flag'].value_counts()
+
+    # Assuming merged_df is your DataFrame to be cleaned
+    preprocessor = DataPreprocessor(processed_df)
     print("NaN values before removal:\n", preprocessor.check_nan())
     preprocessor.remove_nan()
     print("Duplicate rows before removal:", preprocessor.check_duplicates())
     preprocessor.remove_duplicates()
     print("Outliers detected:\n", preprocessor.check_outliers())
     preprocessor.remove_outliers()
-    cleaned_df = preprocessor.convert_float64_to_float32().get_dataframe()
+    
+    cleaned_df = DataPreparation.clean_data(merged_df)
+    logger.info("Cleaned dataframe created with shape: %s", cleaned_df.shape)
 
+    # --- Extract labels ---
+    y = cleaned_df['anomoly_flag'].values
 
-    # Continue with your data preparation (dummy data used here)
-    X = np.random.rand(100, 20)
-    y = np.random.randint(0, 2, size=100)
+    # --- Extract traces ---
+    X_traces = np.stack(cleaned_df['traces'].apply(lambda x: np.array(x)).to_list())
+    X_traces = (X_traces - X_traces.mean(axis=1, keepdims=True)) / \
+    (X_traces.std(axis=1, keepdims=True) + 1e-8)
+    n_traces = X_traces.shape[1]
+    # --- Extract scalar features ---
+    scalar_cols = cleaned_df.select_dtypes(include=[np.number]).columns.drop(['anomoly_flag'])
+    X_scalars = cleaned_df[scalar_cols].values
+    X_scalars = (X_scalars - X_scalars.mean(axis=0)) / \
+    (X_scalars.std(axis=0) + 1e-8)
+    X_combined = np.concatenate([X_traces,X_scalars], axis =1)
+    
+    scale = DataPreparation(test_size=0.2, random_state=42)
+    X_resampled, y_resampled = scale.apply_smote(X_combined, y, sampling_ratio=0.2, k_neighbors=2)
+    logger.info("X_combined resampled shape:", X_resampled.shape)
+    logger.info("y_resampled shape:", y_resampled.shape)
+    # --- Separate combined features back into traces and scalar features ---
+    X_traces_resampled = X_resampled[:, :n_traces]
+    X_scalars_resampled = X_resampled[:, n_traces:]
 
-    prep = DataPreparation(test_size=0.2, random_state=42)
-    X_scaled = prep.scale_features(X)
-    X_resampled, y_resampled = prep.apply_smote(X_scaled, y, sampling_ratio=0.2, k_neighbors=2)
-    X_train, X_test, y_train, y_test = prep.split_data(X_resampled, y_resampled)
+    # Check the new class distribution:
+    logger.info("Resampled class distribution:")
+    logger.info(pd.Series(y_resampled).value_counts())
 
-    n_features = X_train.shape[1]
-    n_trace = n_features // 2
-    n_scalar = n_features - n_trace
+    X_train, X_test, y_train, y_test = scale.split_data(X_resampled, y_resampled)
 
-    X_train_trace = X_train[:, :n_trace].reshape(-1, n_trace, 1)
-    X_train_scalar = X_train[:, n_trace:]
-    X_test_trace = X_test[:, :n_trace].reshape(-1, n_trace, 1)
-    X_test_scalar = X_test[:, n_trace:]
-
+     
     model_builder = AnomalyModel(
         input_trace_shape=(n_trace, 1),
         input_scalar_shape=(n_scalar,),
