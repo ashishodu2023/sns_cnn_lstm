@@ -29,11 +29,11 @@ class AnomalyModel:
 
     def build_model(self):
         self.logger.info("Building the model...")
-        trace_input = Input(shape=self.input_trace_shape, name="trace_input")
-        scalar_input = Input(shape=self.input_scalar_shape, name="scalar_input")
+        #trace_input = Input(shape=self.input_trace_shape, name="trace_input")
+        #scalar_input = Input(shape=self.input_scalar_shape, name="scalar_input")
 
         # CNN + LSTM for trace input
-        x = Conv1D(64, kernel_size=5, padding='same', activation='relu')(trace_input)
+        x = Conv1D(64, kernel_size=5, padding='same', activation='relu')(self.input_trace_shape)
         x = BatchNormalization()(x)
         x = MaxPooling1D(2)(x)
         x = Conv1D(128, kernel_size=3, padding='same', activation='relu')(x)
@@ -43,12 +43,12 @@ class AnomalyModel:
         x = LSTM(64)(x)
         x = Dropout(0.3)(x)
 
-        combined = Concatenate()([x, scalar_input])
+        combined = Concatenate()([x, self.input_scalar_shape])
         z = Dense(64, activation='relu')(combined)
         z = Dropout(0.3)(z)
         output = Dense(1, activation='sigmoid')(z)
 
-        self.model = Model(inputs=[trace_input, scalar_input], outputs=output)
+        self.model = Model(inputs=[self.input_trace_shape, self.input_scalar_shape], outputs=output)
         self.logger.info("Model built successfully.")
 
     def compile_model(self, optimizer='SGD'):
