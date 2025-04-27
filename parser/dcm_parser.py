@@ -40,10 +40,17 @@ class DCMDatConfig:
                                 self.filtered_anomaly_files2.append(
                                     os.path.join(root, file))
 
+<<<<<<< HEAD
         logger.info('Number of available normal files:%s',
               len(self.filtered_normal_files2))
         logger.info('Number of available anomaly files: %s',
               len(self.filtered_anomaly_files2))
+=======
+        self.logger.info('Number of available normal files')
+        self.logger.info(len(self.filtered_normal_files2))
+        self.logger.info('Number of available anomaly files:')
+        self.logger.info(len(self.filtered_anomaly_files2))
+>>>>>>> 806193830e63186b2e8707216c4a78c2a918c101
         return self.filtered_normal_files2, self.filtered_anomaly_files2
 
 
