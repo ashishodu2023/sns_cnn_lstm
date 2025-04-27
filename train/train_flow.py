@@ -2,8 +2,8 @@
 import logging
 import datetime
 import numpy as np
-from data_parser.bpm_parser import BPMDataConfig  
-from data_parser.dcm_config import DCMDatConfig     
+from parser.bpm_parser import BPMDataConfig  
+from parser.dcm_parser import DCMDatConfig     
 from data_preparation.data_scaling import DataPreparation
 from model.anomaly_model import AnomalyModel
 from analysis.evaluation import ModelEvaluator
@@ -27,13 +27,16 @@ def train_workflow(logger):
     dcm_normal = DataPreparation.process_files(filtered_normal_files, 'Sep24', 0, data_type=0)
     dcm_anormal = DataPreparation.process_files(filtered_anomaly_files, 'Sep24', 1, data_type=-1, alarm=48)
     dcm_df=pd.concat([dcm_normal, dcm_anormal], ignore_index=True)
+    logger.info("DCM DataFrame created with shape: %s", dcm_df.shape)
 
     merged_df=DataPreparation.merge_data(bcm_df,dcm_df)
+    logger.info("Merged DataFrame created with shape: %s", merged_df.shape)
 
     processed_df = merged_df[merged_df.columns[~merged_df.columns.isin(
     ['timestamps', 'traces'])]]
-    processed_df.head()
-    processed_df['anomoly_flag'].value_counts()
+    logger.info(processed_df.head())
+    logger.info("Anomaly count: %s",processed_df['anomoly_flag'].value_counts())
+    
 
     # Assuming merged_df is your DataFrame to be cleaned
     preprocessor = DataPreprocessor(processed_df)

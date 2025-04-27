@@ -3,8 +3,8 @@
 
 import argparse
 import logging
-from train.train_flow import train_workflow
-from test.test_flow import test_workflow
+from training.train import train_workflow
+from testing.test import test_workflow
 
 def setup_logging():
     logging.basicConfig(
